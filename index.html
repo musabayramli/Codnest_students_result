@@ -225,6 +225,8 @@ tr:last-child td{ border-bottom:none; }
 
 @media (prefers-reduced-motion: reduce){ .ring .fill, .bar-fill, .choice-card{ transition:none; } }
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div id="app"></div>
@@ -240,8 +242,7 @@ let FAILED_ATTEMPTS = 0;
 let LOCK_UNTIL = 0;
 let TEACHER_LOGIN_MODE = 'login';
 
-// Kod itəndə və ya kimsə səndən qabaq kod qoyubsa, bununla sıfırlaya bilərsən.
-// Bunu heç kimlə paylaşma — yalnız sən (müəllim) bilməlisən.
+// Kod itəndə 
 const RECOVERY_PHRASE = 'qartal-2609-defter';
 
 const app = document.getElementById('app');
@@ -271,18 +272,51 @@ function defaultData(){
   };
 }
 
+/* =====================================================================
+   FIREBASE QURAŞDIRMASI  
+   ===================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCsioOvJur-FolADkg6d6O7CptoJMYeAEE",
+  authDomain: "qiymet-lovhesi.firebaseapp.com",
+  projectId: "qiymet-lovhesi",
+  storageBucket: "qiymet-lovhesi.firebasestorage.app",
+  messagingSenderId: "680651794393",
+  appId: "1:680651794393:web:dbcc9c02daa470dcd81bc8",
+  measurementId: "G-5BVR384Y25"
+};
+
+let db = null;
+let FIREBASE_READY = false;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  FIREBASE_READY = true;
+}catch(e){
+  console.error('Firebase başlamadı:', e);
+}
+
+const GRADEBOOK_DOC = db ? db.collection('gradebook').doc('data') : null;
+
 async function loadData(){
+  if(!FIREBASE_READY){ DATA = defaultData(); return; }
   try{
-    const res = await window.storage.get('gradebook', true);
-    DATA = res && res.value ? JSON.parse(res.value) : defaultData();
+    const snap = await GRADEBOOK_DOC.get();
+    DATA = (snap.exists && snap.data().payload) ? JSON.parse(snap.data().payload) : defaultData();
     if(!DATA.topics || DATA.topics.length===0) DATA.topics = defaultData().topics;
   }catch(e){
+    console.error('Yükləmə xətası:', e);
     DATA = defaultData();
   }
 }
 async function saveData(msg){
-  try{ await window.storage.set('gradebook', JSON.stringify(DATA), true); if(msg) showToast(msg); }
-  catch(e){ showToast('Yadda saxlanmadı, yenidən cəhd et'); }
+  if(!FIREBASE_READY){ showToast('Firebase qoşulmayıb — bax config-ə'); return; }
+  try{
+    await GRADEBOOK_DOC.set({ payload: JSON.stringify(DATA), updatedAt: Date.now() });
+    if(msg) showToast(msg);
+  }catch(e){
+    console.error('Saxlama xətası:', e);
+    showToast('Yadda saxlanmadı, internetini yoxla');
+  }
 }
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -578,7 +612,7 @@ function renderTeacherLogin(mode){
       <button class="btn btn-primary" id="pin-submit" style="width:100%" ${isLocked ? 'disabled' : ''}>${hasPin ? 'Daxil ol' : 'Kod yarat və davam et'}</button>
       <p class="empty" id="pin-error" style="display:${(isLocked || FAILED_ATTEMPTS>0) ? 'block' : 'none'}">${isLocked ? `Çox səhv cəhd. ${Math.ceil(lockedMs/1000)} saniyə sonra yenidən cəhd et.` : (FAILED_ATTEMPTS>0 ? `Kod yanlışdır (${FAILED_ATTEMPTS}/5 cəhd), yenidən cəhd et.` : '')}</p>
       ${hasPin ? `<button class="back-link" id="forgot-btn" style="margin:2px 0 0">Kodu unutmusan?</button>` : ''}
-      <div class="info-note" style="margin-top:14px">${ICONS.info}<div>Bu paneldəki bütün məlumat <b>bu keçidi (linki) açan hər kəs üçün ortaqdır</b> —. Tələbələr eyni keçidi açıb öz adlarını axtararaq nəticəyə baxa bilər. }</div></div>
+      <div class="info-note" style="margin-top:14px">${ICONS.info}<div>Bu paneldəki bütün məlumat <b>bu keçidi (linki) açan hər kəs üçün ortaqdır</b> — brauzerdə deyil, tətbiqin öz yaddaşında saxlanılır. Tələbələr eyni keçidi açıb öz adlarını axtararaq nəticəyə baxa bilər. ${!hasPin ? '<b>Linki tələbələrlə paylaşmadan əvvəl mütləq bu kodu özün qur.</b>' : ''}</div></div>
     </div>
   `;
   bindBack(()=>{ TEACHER_LOGIN_MODE='login'; VIEW='home'; render(); });
@@ -820,6 +854,18 @@ function bindTeacherEvents(){
 /* ---------------- INIT ---------------- */
 (async function init(){
   app.innerHTML = `${header()}<p class="empty">Yüklənir…</p>`;
+  if(firebaseConfig.apiKey === 'BURAYA_API_KEY'){
+    app.innerHTML = `
+      ${header()}
+      <div class="panel" style="border-color: var(--low)">
+        <p class="panel-title" style="color:var(--low)">Firebase quraşdırılmayıb</p>
+        <p style="font-size:13.5px; color: var(--text-dim); line-height:1.6; margin:0;">
+          Kodun başında <code style="font-family:'JetBrains Mono';background:var(--bg-2);padding:2px 6px;border-radius:5px;">firebaseConfig</code> hissəsi hələ öz dəyərlərinlə doldurulmayıb, ona görə heç nə saxlanmır. Claude ilə söhbətdəki addımları izləyib öz Firebase config-ini yapışdır və yenidən deploy et.
+        </p>
+      </div>
+    `;
+    return;
+  }
   await loadData();
   render();
 })();
